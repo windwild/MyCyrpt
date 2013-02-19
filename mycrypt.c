@@ -29,6 +29,13 @@ int sha256_file(char *path, unsigned char* outputBuffer){
     }
     SHA256_Final(outputBuffer, &sha256);
 
+
+    SHA256_Init(&sha256);
+    SHA256_Update(&sha256, outputBuffer, 32);
+    SHA256_Final(outputBuffer, &sha256);
+
+
+
     fclose(file);
     free(buffer);
     return 0;
@@ -83,12 +90,6 @@ int certfile(char* path, char* pempath, unsigned char* signiture, char* passphra
         return(-1);
     }
     fclose(fp);
-    // outfile = fopen(destination,"ab");
-
-    // fwrite(signiture, 1, SIGLEN, outfile);
-
-    // fflush(outfile);
-    // fclose(outfile);
     free(buffer);
 
     return 0;
@@ -142,37 +143,50 @@ int cert_verify(unsigned char* signiture,char* destination, char* pempath, unsig
 }
 
 
-int rsa_encrypt(unsigned char* source,int inputsize, unsigned char* done,
+int rsa_encrypt(unsigned char *k,unsigned int filesize, unsigned char* done,
  char* pempath){
     FILE* file;
     RSA* p_rsa;
     int encrypt_size;
+    char filesize_str[8];
+    unsigned char* source = (unsigned char*)calloc(RSA_SIZE,1);
+    memcpy(source,k,32);
+
+    BIGNUM* bn = BN_new();
+    BN_init(bn);
+    sprintf(filesize_str,"%d",filesize);
+    BN_dec2bn (&bn, filesize_str);
+    BN_bn2bin(bn,source + 36 - BN_num_bytes(bn));
+
+
 
     if((file=fopen(pempath,"r"))==NULL){
         printf("open key file error");
         return -1;    
-    } 
+    }
+
     if((p_rsa = PEM_read_RSA_PUBKEY(file,NULL,NULL,NULL)) == NULL){
         printf("RSA public key error\n");
         return -1;
     }
 
-    if((encrypt_size = RSA_public_encrypt(inputsize,(unsigned char *)source,
-        (unsigned char*)done,p_rsa,RSA_PKCS1_OAEP_PADDING)) < 0){
-        printf("encrypt error\n");
+    if((encrypt_size = RSA_public_encrypt(36,source,done,p_rsa,RSA_PKCS1_OAEP_PADDING)) < 0){
+        printf("RSA encrypt error\n");
         return -1;
     }
+
     RSA_free(p_rsa);
     fclose(file);
+    BN_free(bn);
     return encrypt_size;
 }
 
 
-int rsa_decrypt(unsigned char* source,int outputsize,
-                    unsigned char* done,
+int rsa_decrypt(unsigned char* source,unsigned char *k, unsigned int *filesize,
                 char* pempath, char* passphrase){
     FILE* file;
     RSA *p_rsa;
+    char * filesize_str;
     unsigned char* buffer;
     buffer = (unsigned char*)calloc(1,RSA_SIZE);
     memset(buffer,0,RSA_SIZE);
@@ -194,9 +208,15 @@ int rsa_decrypt(unsigned char* source,int outputsize,
         fprintf(stderr, "RSA decript error\n");
         return -1;
     }
-    memcpy(done,buffer,sizeof(file_header));
+    memcpy(k,buffer,32);
+    BIGNUM* bn = BN_new();
+    BN_bin2bn(buffer+32,4,bn);
+    filesize_str = BN_bn2dec(bn);
+    //printf("filesize:%s\n", filesize_str);
+    *filesize = atoi(filesize_str);
     RSA_free(p_rsa);
     fclose(file);
+    BN_free(bn);
     return 0;
 }
 
@@ -299,18 +319,11 @@ int aes_decrypt(char *filepath, char *destination, unsigned char* key,
     }
     fread(input, 1, AES_BLOCK_SIZE * 9, infile);
     for(i=0;i<9;++i){
-        AES_cbc_encrypt(input+i*AES_BLOCK_SIZE, buffer2+i * AES_BLOCK_SIZE, AES_BLOCK_SIZE, &aes, iv, AES_DECRYPT);
+        AES_cbc_encrypt(input+i*AES_BLOCK_SIZE, buffer2+i * AES_BLOCK_SIZE,
+            AES_BLOCK_SIZE, &aes, iv, AES_DECRYPT);
     }
     fwrite(buffer2,1,(filesize-1)%AES_BLOCK_SIZE+1, outfile);
     memcpy(signiture,buffer2+(filesize-1)%AES_BLOCK_SIZE + 1,SIGLEN);
-
-    //decrypt signiture
-    // fseek(infile,-8 * AES_BLOCK_SIZE, SEEK_END);
-    // for(i=0;i<8;++i){
-    //     fread(input,1,AES_BLOCK_SIZE,infile);
-    //     AES_cbc_encrypt(input, signiture+i*AES_BLOCK_SIZE, AES_BLOCK_SIZE, 
-    //         &aes, iv, AES_DECRYPT);
-    // }
 
     fflush(outfile);
     fclose(infile);
@@ -321,11 +334,10 @@ int aes_decrypt(char *filepath, char *destination, unsigned char* key,
 
 
 int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase){
-    struct file_header fh;
-    // unsigned char buffer[BUFFER_SIZE];
     unsigned char* buffer;
     buffer = (unsigned char*)calloc(1,BUFFER_SIZE);
-
+    unsigned int filesize;
+    unsigned char k[32];
 
     char outpath[1024];
     sprintf(outpath, "%s.enc", filepath);
@@ -336,11 +348,11 @@ int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase){
     }
 
     //Get file header K and filesize
-    fh.filesize = getfilesize(filepath);
-    sha256_file(filepath, fh.k);
+    filesize = getfilesize(filepath);
+    sha256_file(filepath, k);
 
     //Encrypt file header
-    rsa_encrypt((unsigned char*)&fh,sizeof(fh), buffer, spub);
+    rsa_encrypt(k, filesize, buffer, spub);
     //write encrypted file header to file
 
     if(fwrite(buffer, RSA_SIZE, 1, outfile) == 0){
@@ -356,7 +368,7 @@ int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase){
 
     certfile(filepath, lpri, signiture, passphrase);
 
-    aes_encrypt(filepath, outpath, fh.k, fh.filesize, signiture);
+    aes_encrypt(filepath, outpath, k, filesize, signiture);
 
     free(buffer);
     return 0;
@@ -366,11 +378,11 @@ int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
     FILE* file;
     // unsigned char buffer[BUFFER_SIZE];
     unsigned char signiture[SIGLEN];
-
-    unsigned char* buffer;
+    unsigned int filesize;
+    unsigned char k[32];
+    unsigned char *buffer;
     buffer = (unsigned char*)calloc(1,BUFFER_SIZE);
 
-    file_header fh;
     char destination[512];
     sprintf(destination,"%s.txt",filepath);
     if((file = fopen( filepath, "r")) == NULL){
@@ -379,15 +391,15 @@ int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
     }
     fread(buffer, RSA_SIZE, 1, file);
     fclose(file);
-    rsa_decrypt(buffer, sizeof(file_header), (unsigned char*)&fh, spri,
+    rsa_decrypt(buffer, k, &filesize, spri,
         passphrase);
-    printf("filesize:%d\n", fh.filesize);
-
-    aes_decrypt(filepath, destination, fh.k, fh.filesize,signiture);
+    printf("filesize:%d\n", filesize);
+    aes_decrypt(filepath, destination, k, filesize,signiture);
 
     free(buffer);
 
-    if(cert_verify(signiture, destination, cert ,fh.filesize) == 1){
+    if(cert_verify(signiture, destination, cert ,filesize) == 1){
+    //if(1 == 1){
         printf("signature verified seccessful!\n");
     }else{
         printf("signature verified failed!\n");
@@ -395,9 +407,9 @@ int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
     return 0;
 }
 
-
 int main(int argc, char *argv[])
 {
+    // test_bn();
     char filepath[1024];
     char lpri[1024];
     char spub[1024];
@@ -421,7 +433,6 @@ int main(int argc, char *argv[])
                 break;
                 
             case 'd':
-                //printf("decrypt mode\n");
                 if(mode != 0){
                     fprintf(stderr, "set mode error\n");
                     exit(-1);
@@ -430,32 +441,26 @@ int main(int argc, char *argv[])
                 break;
                 
             case 'f':
-                //printf("filepath:%s\n", optarg);
                 strcpy(filepath, optarg);
                 break;
                 
             case '1':
-                //printf("cert:%s\n", optarg);
                 strcpy(cert, optarg);
                 break;
                 
             case '2':
-                //printf("lpri:%s\n", optarg);
                 strcpy(lpri, optarg);
                 break;
 
             case '3':
-                //printf("spub:%s\n", optarg);
                 strcpy(spub, optarg);
                 break;
 
             case '4':
-                //printf("spri:%s\n", optarg);
                 strcpy(spri, optarg);
                 break;
 
             case '5':
-                //printf("lp:%s\n", optarg);
                 strcpy(passphrase, optarg);
                 break;
 
@@ -480,7 +485,6 @@ int main(int argc, char *argv[])
     }else{
         encrypt_file(filepath,lpri,spub,passphrase);
     }
-
 
     return 0;
 }

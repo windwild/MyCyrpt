@@ -29,12 +29,6 @@
 #define BUFSIZE 1024
 #define SIGLEN 128
 
-struct file_header
-{
-    unsigned char k[32];
-    unsigned int filesize;
-};
-
 
 unsigned int getfilesize(char* filepath);
 int sha256_file(char *path, unsigned char* outputBuffer);
