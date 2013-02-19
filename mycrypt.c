@@ -34,111 +34,98 @@ int sha256_file(char *path, unsigned char* outputBuffer){
     SHA256_Update(&sha256, outputBuffer, 32);
     SHA256_Final(outputBuffer, &sha256);
 
-
-
     fclose(file);
     free(buffer);
     return 0;
 }
 
-int certfile(char* path, char* pempath, unsigned char* signiture, char* passphrase){
+int certfile(char* path, char* pempath, unsigned char* signature, char* passphrase){
     FILE* fp;
-    //FILE* outfile;
-    EVP_MD_CTX evp_md_ctx;
-    EVP_PKEY* priv_key; 
+    DSA* dsa;
 
     unsigned char* sign_string;
     unsigned int sig_len;
+    unsigned char sha[32];
 
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+    const int bufSize = 1024;
+    unsigned char *buffer = (unsigned char *)malloc(bufSize);
+    int bytesRead = 0;
+    if(!buffer) return -1;
 
-    OpenSSL_add_all_algorithms();
+    FILE *file = fopen(path, "rb");
+    while((bytesRead = fread(buffer, 1, bufSize, file)))
+    {
+        SHA256_Update(&sha256, buffer, bytesRead);
+    }
+    SHA256_Final(sha, &sha256);
+    fclose(file);
+
     if ((fp = fopen(pempath, "r")) == NULL) {
-        fprintf(stderr, "Unable to oepn private key file\n");
+        fprintf(stderr, "Unable to open DSA private key file\n");
         return(-1);
     }
-    priv_key = PEM_read_PrivateKey(fp, NULL, NULL, passphrase);
-    if (priv_key == NULL) {
-        fprintf(stderr, "cannot read private key.\n");
+    OpenSSL_add_all_algorithms();
+    dsa = PEM_read_DSAPrivateKey(fp, NULL, NULL, passphrase);
+    if (dsa == NULL) {
+        fprintf(stderr, "cannot read DSA private key.\n");
         return(-1);
     }
     fclose(fp);
 
     sig_len = SIGLEN;
-    sign_string = (unsigned char*)calloc(sig_len, sizeof(unsigned char));   
+    sign_string = (unsigned char*)calloc(sig_len, 1);   
     if (sign_string == NULL) {
         fprintf(stderr, "Unable to allocate memory for sign_string\n");
         return(-1);
     }
-
-
-    EVP_SignInit(&evp_md_ctx, EVP_sha1());
-    char *buffer = (char *)malloc(BUFSIZE);
-    int bytesRead = 0;
-    if(!buffer) return -1;
-    if ((fp = fopen(path, "rb")) == NULL) {
-        fprintf(stderr, "Unable to oepn file\n");
-        return(-1);
+    //DSAparams_print_fp(stdout, dsa);
+    if (DSA_sign(0, sha, 16, signature, &sig_len, dsa) == 0) {
+        fprintf(stderr, "Sign Error.\n");
+        exit(-1);
     }
-
-    while((bytesRead = fread(buffer, 1, BUFSIZE, fp)))
-    {
-        EVP_SignUpdate(&evp_md_ctx, buffer, bytesRead);
-    }
-    if (EVP_SignFinal(&evp_md_ctx, signiture, &sig_len, priv_key) == 0) { 
-        EVP_cleanup();
-        fprintf(stderr, "Unable to sign\n");
-        return(-1);
-    }
-    fclose(fp);
     free(buffer);
 
     return 0;
 }
 
 
-int cert_verify(unsigned char* signiture,char* destination, char* pempath, unsigned int filesize){
-    FILE* fp;
-    X509* cert;
-    EVP_PKEY* pub_key;
-    EVP_MD_CTX evp_md_ctx;
+int cert_verify(unsigned char* signature,char* destination, char* pempath, unsigned int filesize){
+    DSA* dsa;
 
-    OpenSSL_add_all_algorithms();
-
-    if ((fp = fopen(pempath, "r")) == NULL) {           
-        fprintf(stderr, "cannot open x509 cert file\n");
-        exit(-1);                                         
-    }
-    if ((cert = PEM_read_X509(fp, NULL, NULL, NULL)) == NULL) {
-        fprintf(stderr, "cannot read cert file\n");
-        exit(-1);
-    } 
-    if ((pub_key = X509_get_pubkey(cert)) == NULL) {
-        fprintf(stderr, "cannot read x509's public key\n");
-        exit(-1);                                         
-    } 
-    fclose(fp);
-
-    if ((fp = fopen(destination, "rb")) == NULL) {           
-        fprintf(stderr, "cannot read file\n");
-        exit(-1);
-    }
-
-    EVP_VerifyInit(&evp_md_ctx, EVP_sha1());
-    char *buffer = (char *)malloc(BUFSIZE);
+    unsigned char sha[32];
+    FILE *file = fopen(destination, "rb");
+    SHA256_CTX sha256;
+    SHA256_Init(&sha256);
+    const int bufSize = 1024;
+    char *buffer = (char *)malloc(bufSize);
     int bytesRead = 0;
     if(!buffer) return -1;
+    while((bytesRead = fread(buffer, 1, bufSize, file)))
+    {
+        SHA256_Update(&sha256, buffer, bytesRead);
+    }
+    SHA256_Final(sha, &sha256);
+    fclose(file);
 
-    while((bytesRead = fread(buffer, 1, BUFSIZE, fp)))
-    {  
-        EVP_VerifyUpdate(&evp_md_ctx, buffer, bytesRead);
+    FILE* fp;
+    if ((fp = fopen(pempath, "r")) == NULL) {
+        fprintf(stderr, "Unable to open RSA public key file\n");
+        return(-1);
+    }
+    dsa = PEM_read_DSA_PUBKEY(fp, NULL, NULL, NULL);
+    if (dsa == NULL) {
+        fprintf(stderr, "cannot read DSA public key.\n");
+        return(-1);
     }
     fclose(fp);
 
-    int is_valid_signature = EVP_VerifyFinal(&evp_md_ctx, signiture,
-            SIGLEN, pub_key);
 
-    fclose(fp);
-    return is_valid_signature;
+    int valid = DSA_verify(0, sha, 16, signature, SIGLEN, dsa);
+
+    printf("is valid %d\n", valid);
+    return valid;
 
 }
 
@@ -212,7 +199,7 @@ int rsa_decrypt(unsigned char* source,unsigned char *k, unsigned int *filesize,
     BIGNUM* bn = BN_new();
     BN_bin2bn(buffer+32,4,bn);
     filesize_str = BN_bn2dec(bn);
-    //printf("filesize:%s\n", filesize_str);
+    printf("filesize:%s\n", filesize_str);
     *filesize = atoi(filesize_str);
     RSA_free(p_rsa);
     fclose(file);
@@ -222,7 +209,7 @@ int rsa_decrypt(unsigned char* source,unsigned char *k, unsigned int *filesize,
 
 
 int aes_encrypt(char *filepath, char *destination, unsigned char *key,
-                unsigned int filesize, unsigned char* signiture){
+                unsigned int filesize, unsigned char* signature){
     unsigned char input[512];
     unsigned char buffer[512];
     AES_KEY aes;
@@ -263,7 +250,7 @@ int aes_encrypt(char *filepath, char *destination, unsigned char *key,
     }
 
     bytesRead = fread(input, 1, AES_BLOCK_SIZE, infile);
-    memcpy(input+bytesRead, signiture, SIGLEN);
+    memcpy(input+bytesRead, signature, SIGLEN);
 
     for(i=0;i<9;++i){
         AES_cbc_encrypt(input+i*AES_BLOCK_SIZE, buffer, AES_BLOCK_SIZE,
@@ -280,7 +267,7 @@ int aes_encrypt(char *filepath, char *destination, unsigned char *key,
 
 
 int aes_decrypt(char *filepath, char *destination, unsigned char* key,
-                unsigned int filesize, unsigned char* signiture){
+                unsigned int filesize, unsigned char* signature){
     unsigned char input[512];
     unsigned char buffer[512];
     unsigned char buffer2[512];
@@ -323,7 +310,7 @@ int aes_decrypt(char *filepath, char *destination, unsigned char* key,
             AES_BLOCK_SIZE, &aes, iv, AES_DECRYPT);
     }
     fwrite(buffer2,1,(filesize-1)%AES_BLOCK_SIZE+1, outfile);
-    memcpy(signiture,buffer2+(filesize-1)%AES_BLOCK_SIZE + 1,SIGLEN);
+    memcpy(signature,buffer2+(filesize-1)%AES_BLOCK_SIZE + 1,SIGLEN);
 
     fflush(outfile);
     fclose(infile);
@@ -338,6 +325,8 @@ int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase){
     buffer = (unsigned char*)calloc(1,BUFFER_SIZE);
     unsigned int filesize;
     unsigned char k[32];
+    unsigned char signature[SIGLEN];
+
 
     char outpath[1024];
     sprintf(outpath, "%s.enc", filepath);
@@ -363,12 +352,11 @@ int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase){
     fflush(outfile);
     fclose(outfile);
 
-    //calculate signiture
-    unsigned char signiture[SIGLEN];
+    //calculate signature
 
-    certfile(filepath, lpri, signiture, passphrase);
+    certfile(filepath, lpri, signature, passphrase);
 
-    aes_encrypt(filepath, outpath, k, filesize, signiture);
+    aes_encrypt(filepath, outpath, k, filesize, signature);
 
     free(buffer);
     return 0;
@@ -377,7 +365,7 @@ int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase){
 int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
     FILE* file;
     // unsigned char buffer[BUFFER_SIZE];
-    unsigned char signiture[SIGLEN];
+    unsigned char signature[SIGLEN];
     unsigned int filesize;
     unsigned char k[32];
     unsigned char *buffer;
@@ -391,15 +379,15 @@ int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
     }
     fread(buffer, RSA_SIZE, 1, file);
     fclose(file);
-    rsa_decrypt(buffer, k, &filesize, spri,
-        passphrase);
+
+    rsa_decrypt(buffer, k, &filesize, spri, passphrase);
+
     printf("filesize:%d\n", filesize);
-    aes_decrypt(filepath, destination, k, filesize,signiture);
+    aes_decrypt(filepath, destination, k, filesize,signature);
 
     free(buffer);
 
-    if(cert_verify(signiture, destination, cert ,filesize) == 1){
-    //if(1 == 1){
+    if(cert_verify(signature, destination, cert ,filesize) == 1){
         printf("signature verified seccessful!\n");
     }else{
         printf("signature verified failed!\n");
@@ -409,7 +397,6 @@ int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
 
 int main(int argc, char *argv[])
 {
-    // test_bn();
     char filepath[1024];
     char lpri[1024];
     char spub[1024];
