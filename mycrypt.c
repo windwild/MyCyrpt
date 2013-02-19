@@ -123,8 +123,6 @@ int cert_verify(unsigned char* signature,char* destination, char* pempath, unsig
 
 
     int valid = DSA_verify(0, sha, 16, signature, SIGLEN, dsa);
-
-    printf("is valid %d\n", valid);
     return valid;
 
 }
@@ -199,7 +197,7 @@ int rsa_decrypt(unsigned char* source,unsigned char *k, unsigned int *filesize,
     BIGNUM* bn = BN_new();
     BN_bin2bn(buffer+32,4,bn);
     filesize_str = BN_bn2dec(bn);
-    printf("filesize:%s\n", filesize_str);
+
     *filesize = atoi(filesize_str);
     RSA_free(p_rsa);
     fclose(file);
@@ -272,7 +270,7 @@ int aes_decrypt(char *filepath, char *destination, unsigned char* key,
     unsigned char buffer[512];
     unsigned char buffer2[512];
     AES_KEY aes;
-    unsigned char iv[AES_BLOCK_SIZE];       // init vector
+    unsigned char iv[AES_BLOCK_SIZE];
     int i;
     FILE* infile;
     FILE* outfile;
@@ -364,7 +362,6 @@ int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase){
 
 int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
     FILE* file;
-    // unsigned char buffer[BUFFER_SIZE];
     unsigned char signature[SIGLEN];
     unsigned int filesize;
     unsigned char k[32];
@@ -373,6 +370,11 @@ int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
 
     char destination[512];
     sprintf(destination,"%s.txt",filepath);
+
+    file = fopen(destination,"wb");
+    fclose(file);
+
+
     if((file = fopen( filepath, "r")) == NULL){
         printf("encrypted file open error");
         return NULL;
@@ -383,11 +385,13 @@ int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase){
     rsa_decrypt(buffer, k, &filesize, spri, passphrase);
 
     printf("filesize:%d\n", filesize);
-    aes_decrypt(filepath, destination, k, filesize,signature);
+    if(filesize > 0){
+        aes_decrypt(filepath, destination, k, filesize, signature);
+    }
 
     free(buffer);
 
-    if(cert_verify(signature, destination, cert ,filesize) == 1){
+    if(cert_verify(signature, destination, cert ,filesize) == 1 || filesize == 0){
         printf("signature verified seccessful!\n");
     }else{
         printf("signature verified failed!\n");
