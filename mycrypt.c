@@ -47,8 +47,8 @@ int certfile(char* path, char* pempath, unsigned char* signature, char* passphra
     unsigned int sig_len;
     unsigned char sha[32];
 
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
+    SHA_CTX sha256;
+    SHA1_Init(&sha256);
     const int bufSize = 1024;
     unsigned char *buffer = (unsigned char *)malloc(bufSize);
     int bytesRead = 0;
@@ -57,9 +57,9 @@ int certfile(char* path, char* pempath, unsigned char* signature, char* passphra
     FILE *file = fopen(path, "rb");
     while((bytesRead = fread(buffer, 1, bufSize, file)))
     {
-        SHA256_Update(&sha256, buffer, bytesRead);
+        SHA1_Update(&sha256, buffer, bytesRead);
     }
-    SHA256_Final(sha, &sha256);
+    SHA1_Final(sha, &sha256);
     fclose(file);
 
     if ((fp = fopen(pempath, "r")) == NULL) {
@@ -81,7 +81,7 @@ int certfile(char* path, char* pempath, unsigned char* signature, char* passphra
         return(-1);
     }
     //DSAparams_print_fp(stdout, dsa);
-    if (DSA_sign(0, sha, 16, signature, &sig_len, dsa) == 0) {
+    if (DSA_sign(0, sha, 20, signature, &sig_len, dsa) == 0) {
         fprintf(stderr, "Sign Error.\n");
         exit(-1);
     }
@@ -96,17 +96,17 @@ int cert_verify(unsigned char* signature,char* destination, char* pempath, unsig
 
     unsigned char sha[32];
     FILE *file = fopen(destination, "rb");
-    SHA256_CTX sha256;
-    SHA256_Init(&sha256);
+    SHA_CTX sha256;
+    SHA1_Init(&sha256);
     const int bufSize = 1024;
     char *buffer = (char *)malloc(bufSize);
     int bytesRead = 0;
     if(!buffer) return -1;
     while((bytesRead = fread(buffer, 1, bufSize, file)))
     {
-        SHA256_Update(&sha256, buffer, bytesRead);
+        SHA1_Update(&sha256, buffer, bytesRead);
     }
-    SHA256_Final(sha, &sha256);
+    SHA1_Final(sha, &sha256);
     fclose(file);
 
     FILE* fp;
@@ -122,7 +122,7 @@ int cert_verify(unsigned char* signature,char* destination, char* pempath, unsig
     fclose(fp);
 
 
-    int valid = DSA_verify(0, sha, 16, signature, SIGLEN, dsa);
+    int valid = DSA_verify(0, sha, 20, signature, SIGLEN, dsa);
     return valid;
 
 }
