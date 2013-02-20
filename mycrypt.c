@@ -47,8 +47,8 @@ int certfile(char* path, char* pempath, unsigned char* signature, char* passphra
     unsigned int sig_len;
     unsigned char sha[32];
 
-    SHA_CTX sha256;
-    SHA1_Init(&sha256);
+    SHA_CTX sha1;
+    SHA1_Init(&sha1);
     const int bufSize = 1024;
     unsigned char *buffer = (unsigned char *)malloc(bufSize);
     int bytesRead = 0;
@@ -57,9 +57,9 @@ int certfile(char* path, char* pempath, unsigned char* signature, char* passphra
     FILE *file = fopen(path, "rb");
     while((bytesRead = fread(buffer, 1, bufSize, file)))
     {
-        SHA1_Update(&sha256, buffer, bytesRead);
+        SHA1_Update(&sha1, buffer, bytesRead);
     }
-    SHA1_Final(sha, &sha256);
+    SHA1_Final(sha, &sha1);
     fclose(file);
 
     if ((fp = fopen(pempath, "r")) == NULL) {
@@ -96,17 +96,17 @@ int cert_verify(unsigned char* signature,char* destination, char* pempath, unsig
 
     unsigned char sha[32];
     FILE *file = fopen(destination, "rb");
-    SHA_CTX sha256;
-    SHA1_Init(&sha256);
+    SHA_CTX sha1;
+    SHA1_Init(&sha1);
     const int bufSize = 1024;
     char *buffer = (char *)malloc(bufSize);
     int bytesRead = 0;
     if(!buffer) return -1;
     while((bytesRead = fread(buffer, 1, bufSize, file)))
     {
-        SHA1_Update(&sha256, buffer, bytesRead);
+        SHA1_Update(&sha1, buffer, bytesRead);
     }
-    SHA1_Final(sha, &sha256);
+    SHA1_Final(sha, &sha1);
     fclose(file);
 
     FILE* fp;
@@ -228,11 +228,10 @@ int aes_encrypt(char *filepath, char *destination, unsigned char *key,
         fprintf(stderr, "cannot open outfile\n");
         return -1;
     }
-    fseek(outfile,RSA_SIZE,SEEK_SET);
     for (i=0; i<AES_BLOCK_SIZE; ++i) {
         iv[i] = 0;
     }
-    if (AES_set_encrypt_key(key, 128, &aes) < 0) {
+    if (AES_set_encrypt_key(key, 256, &aes) < 0) {
         fprintf(stderr, "Unable to set encryption key in AES\n");
         exit(-1);
     }
@@ -250,7 +249,7 @@ int aes_encrypt(char *filepath, char *destination, unsigned char *key,
     bytesRead = fread(input, 1, AES_BLOCK_SIZE, infile);
     memcpy(input+bytesRead, signature, SIGLEN);
 
-    for(i=0;i<9;++i){
+    for(i=0;i<4;++i){
         AES_cbc_encrypt(input+i*AES_BLOCK_SIZE, buffer, AES_BLOCK_SIZE,
                         &aes, iv, AES_ENCRYPT);
         fwrite(buffer,1,AES_BLOCK_SIZE,outfile);
@@ -292,7 +291,7 @@ int aes_decrypt(char *filepath, char *destination, unsigned char* key,
         iv[i] = 0;
     }
 
-    if (AES_set_decrypt_key(key, 128, &aes) < 0) {
+    if (AES_set_decrypt_key(key, 256, &aes) < 0) {
         fprintf(stderr, "Unable to set decryption key in AES\n");
         exit(-1);
     }
@@ -302,13 +301,13 @@ int aes_decrypt(char *filepath, char *destination, unsigned char* key,
         AES_cbc_encrypt(input, buffer, AES_BLOCK_SIZE, &aes, iv, AES_DECRYPT);
         fwrite(buffer,1,AES_BLOCK_SIZE,outfile);
     }
-    fread(input, 1, AES_BLOCK_SIZE * 9, infile);
-    for(i=0;i<9;++i){
+    fread(input, 1, AES_BLOCK_SIZE * 4, infile);
+    for(i=0;i<4;++i){
         AES_cbc_encrypt(input+i*AES_BLOCK_SIZE, buffer2+i * AES_BLOCK_SIZE,
             AES_BLOCK_SIZE, &aes, iv, AES_DECRYPT);
     }
     fwrite(buffer2,1,(filesize-1)%AES_BLOCK_SIZE+1, outfile);
-    memcpy(signature,buffer2+(filesize-1)%AES_BLOCK_SIZE + 1,SIGLEN);
+    memcpy(signature,buffer2+(filesize-1)%AES_BLOCK_SIZE + 1,48);
 
     fflush(outfile);
     fclose(infile);

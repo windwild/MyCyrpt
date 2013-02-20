@@ -27,7 +27,7 @@
 #define SP 1005
 #define RSA_SIZE 128
 #define BUFSIZE 1024
-#define SIGLEN 128
+#define SIGLEN 48
 
 
 unsigned int getfilesize(char* filepath);
