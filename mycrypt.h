@@ -33,12 +33,15 @@
 
 unsigned int getfilesize(char* filepath);
 int sha256_file(char *path, unsigned char* outputBuffer);
-int certfile(char* path,char *destination, char* pempath, unsigned char* signiture);
-int rsa_encrypt(unsigned char* source,int inputsize, unsigned char* done, char* pempath);
-int rsa_decrypt(unsigned char* source,int outputsize, unsigned char* done, char* pempath);
-int aes_file(char* filepath, char* destination, unsigned char* key);
-int aes_encrypt(char *filepath, char *destination, unsigned char *key);
-int aes_decrypt(char *filepath, char *destination, unsigned char *key);
+int certfile(char* path, char* pempath, unsigned char* signature, char* passphrase);
+int cert_verify(unsigned char* signature,char* destination, char* pempath, unsigned int filesize);
+int rsa_encrypt(unsigned char *k,unsigned int filesize, unsigned char* done, char* pempath);
+int rsa_decrypt(unsigned char* source,unsigned char *k, unsigned int *filesize,char* pempath, char* passphrase);
+int aes_encrypt(char *filepath, char *destination, unsigned char *key,unsigned int filesize, unsigned char* signature);
+int aes_decrypt(char *filepath, char *destination, unsigned char* key,unsigned int filesize, unsigned char* signature);
+int encrypt_file(char* filepath, char* lpri, char* spub, char* passphrase);
+int decrypt_file(char* filepath, char* cert, char* spri, char* passphrase);
+
 
 static const char *optString = "edf:";
 
